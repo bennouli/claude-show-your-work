@@ -89,13 +89,11 @@ export const state = {
 }
 
 // The switches, kept in the plugin's store (a /config row would reload the
-// plugin on every change). The environment variables still turn updates and
-// usage counts off whatever these say.
+// plugin on every change). This fork has no update or usage data switches:
+// it never updates itself and never sends usage data.
 export const SETTINGS = [
-  { field: 'stable_updates', title: 'Updates', options: ['Stable releases', 'Latest'], text: 'Automatically install plugin updates from GitHub' },
-  { field: 'usage_stats', title: 'Usage data', options: ['Share anonymously', "Don't share"], text: 'Helps fix bugs and improve the product experience. No sensitive data is ever shared' },
   { field: 'standard_size', title: 'Picture size', options: ['Standard', 'Large'], text: 'Large shows pictures and videos one and a half times bigger' },
 ] as const
 export type Field = (typeof SETTINGS)[number]['field']
 // Each switch is true on its first option, the default.
-export const settings: Record<Field, boolean> = { stable_updates: true, usage_stats: true, standard_size: true }
+export const settings: Record<Field, boolean> = { standard_size: true }

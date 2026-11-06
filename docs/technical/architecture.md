@@ -16,8 +16,8 @@ How a picture or video gets from Claude's tool call to the terminal, and which m
 | `sound.ts` | A video's sound: the stream check, the cut sound file, ffplay and its clock |
 | `tmux.ts` | Inside tmux: turns on `allow-passthrough` for the pane and forwards Claude Code's picture commands, wrapped, through `pipe-pane` |
 | `onboarding.tsx`, `tour.ts` | The settings pane, the welcome and the tour |
-| `updater.ts` | The daily update check and moves between Stable and Latest |
-| `telemetry.ts` | Anonymous usage counts (PostHog) |
+| `updater.ts` | Removed in this fork: only version helpers and the `Found` type remain |
+| `telemetry.ts` | Removed in this fork: the exports remain and do nothing |
 | `diagnostics.ts` | The local debug log: structured events, problem checks, `/show-your-work diagnose`. Never sent anywhere |
 
 `register.tsx` is the entry module and imports the rest. `hooks.json` loads `bundle.tsx`, which `node tools/bundle.mjs` joins from all of them, so Claude Code before 2.1.299 can load it (see `plugin-loader-and-hooks.md`). The loader's rules apply in every module.

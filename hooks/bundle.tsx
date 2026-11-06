@@ -203,9 +203,9 @@ export function pagesOf<T>(items: { item: T; rows: number }[], rows: number): T[
 }
 
 // ── telemetry.ts ──────────────────────────────────────────────────────────
-// Anonymous usage stats and the button presses they count. The local debug
-// log is diagnostics.ts, kept apart so nothing in it is ever sent.
-
+// Usage stats, removed in this fork: nothing is ever sent. The functions stay,
+// doing nothing, so the call sites match upstream and merges stay small. The
+// local debug log is diagnostics.ts, which never leaves the computer either.
 
 // A button press, by name only. False, so it chains: act('save') || keep().
 export const act = (action: string): false => {
@@ -213,23 +213,8 @@ export const act = (action: string): false => {
   return false
 }
 
-// Anonymous usage stats, sent to PostHog: what kind of thing happened and how
-// often, under a random id made once per install. Never a file name, path,
-// URL, title, prompt or anything typed. Off with SHOW_YOUR_WORK_TELEMETRY=0 or
-// DO_NOT_TRACK=1, and nothing is sent while POSTHOG_PROJECT is empty.
-// PostHog's public project id for this plugin: it can only add events, never
-// read them, so it ships. The address is written out at the call, so the
-// directory review can read where the events go.
-const POSTHOG_PROJECT = 'phc_mLGFguVcH3Tei4txwqXFPU4xBgFDKThEZncahTv3LS3W'
-// Events wait here and go out together, at most once a minute and at exit.
-const FLUSH_MS = 60_000
-const MAX_QUEUED = 500
-
 export type Props = Record<string, string | number | boolean | null | undefined | Record<string, string | number | boolean | undefined>>
 export type Event = { event: string; properties: Props; timestamp: string }
-let installId = ''
-let base: Props = {}
-let isFlushing = false
 
 // A made-up name for an install, the same every time for one id, so profiles
 // read as "Swift Otter" rather than a UUID. Nothing in it comes from the person.
@@ -244,64 +229,19 @@ export function nicknameOf(id: string): string {
 }
 
 // An installed copy runs from Claude Code's plugin cache. One loaded from a
-// folder (--plugin-dir) is someone working on the plugin: it sends nothing.
+// folder (--plugin-dir) is someone working on the plugin.
 export const isInstalledCopy = (root: string) => /\/plugins\/cache\//.test(root)
 
-// SHOW_YOUR_WORK_TELEMETRY=0, DO_NOT_TRACK=1 or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: nothing is sent.
+// Kept for upstream's tests; nothing reads it, since nothing is ever sent.
 export const isStatsBlocked = (optOut?: string, dnt?: string, quiet?: string) =>
   /^(0|false|off|no)$/i.test(optOut ?? '') || /^(1|true)$/i.test(dnt ?? '') || !!quiet
 
-export async function startTelemetry($: EngineInterface, context: Props) {
-  if (!POSTHOG_PROJECT || !isInstalledCopy($.plugin.root)) return
-  const optOut = await $.env.get('SHOW_YOUR_WORK_TELEMETRY')
-  const dnt = await $.env.get('DO_NOT_TRACK')
-  const quiet = await $.env.get('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
-  if (isStatsBlocked(optOut, dnt, quiet)) return
-  // Turned back on in the same session: the timer is already running.
-  if (installId) return void (state.isOn = true)
-  installId = String((await $.store.get('installId')) ?? '')
-  const isNew = !installId
-  if (isNew) {
-    installId = crypto.randomUUID()
-    await $.store.set('installId', installId)
-  }
-  state.isOn = true
-  // Each install is one anonymous person, keyed by its random id: the profile
-  // holds the setup it runs on, never anything about who uses it.
-  // No location, ever: no IP is sent, and PostHog is told not to look one up.
-  base = { ...context, $ip: null, $geoip_disable: true }
-  const profile = { $set: { ...context, name: nicknameOf(installId), update_channel: settings.stable_updates ? 'stable' : 'latest', usage_data: 'on' }, $set_once: { first_plugin_version: String(context.plugin_version ?? "") } }
-  if (isNew) track('installed', profile)
-  track('session_started', profile)
-  $.clock.every(FLUSH_MS, () => void flush($))
-}
+// Removed in this fork: no install id, no queue, no timer, no network.
+export async function startTelemetry(_$: EngineInterface, _context: Props) {}
 
-// Counts and kinds only: callers pass no names, paths or text.
-export function track(event: string, properties: Props = {}) {
-  if (!state.isOn) return
-  if (state.queue.length >= MAX_QUEUED) state.queue.shift()
-  state.queue.push({ event, properties: { ...base, ...properties }, timestamp: new Date().toISOString() })
-}
+export function track(_event: string, _properties: Props = {}) {}
 
-export async function flush($: EngineInterface) {
-  if (!state.isOn || isFlushing || !state.queue.length) return
-  isFlushing = true
-  const batch = state.queue
-  state.queue = []
-  try {
-    const r = await $.http.fetch('https://us.i.posthog.com/batch/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ api_key: POSTHOG_PROJECT, batch: batch.map(e => ({ ...e, distinct_id: installId })) }),
-    })
-    // A refused batch is dropped, not retried: stats are never worth a backlog.
-    if (!r.ok && r.status >= 500) state.queue = [...batch, ...state.queue].slice(-MAX_QUEUED)
-  } catch {
-    state.queue = [...batch, ...state.queue].slice(-MAX_QUEUED)
-  } finally {
-    isFlushing = false
-  }
-}
+export async function flush(_$: EngineInterface) {}
 
 // ── media.ts ──────────────────────────────────────────────────────────────
 // Getting pictures and videos ready to draw: conversion, frames cut a chunk
@@ -2258,6 +2198,9 @@ export async function stopForwarding($: EngineInterface) {
   const pane = forwarding
   forwarding = ''
   await Promise.resolve().then(() => $.process.run(['tmux', 'pipe-pane', '-t', pane])).catch(() => undefined)
+  // Pass-through was turned on for this pane only: unset it, so the pane goes
+  // back to the person's own tmux setting once Claude Code has gone.
+  await Promise.resolve().then(() => $.process.run(['tmux', 'set', '-p', '-u', '-t', pane, 'allow-passthrough'])).catch(() => undefined)
 }
 
 // ── sound.ts ──────────────────────────────────────────────────────────────
@@ -4434,16 +4377,14 @@ export const state = {
 }
 
 // The switches, kept in the plugin's store (a /config row would reload the
-// plugin on every change). The environment variables still turn updates and
-// usage counts off whatever these say.
+// plugin on every change). This fork has no update or usage data switches:
+// it never updates itself and never sends usage data.
 export const SETTINGS = [
-  { field: 'stable_updates', title: 'Updates', options: ['Stable releases', 'Latest'], text: 'Automatically install plugin updates from GitHub' },
-  { field: 'usage_stats', title: 'Usage data', options: ['Share anonymously', "Don't share"], text: 'Helps fix bugs and improve the product experience. No sensitive data is ever shared' },
   { field: 'standard_size', title: 'Picture size', options: ['Standard', 'Large'], text: 'Large shows pictures and videos one and a half times bigger' },
 ] as const
 export type Field = (typeof SETTINGS)[number]['field']
 // Each switch is true on its first option, the default.
-export const settings: Record<Field, boolean> = { stable_updates: true, usage_stats: true, standard_size: true }
+export const settings: Record<Field, boolean> = { standard_size: true }
 
 // ── diagnostics.ts ────────────────────────────────────────────────────────
 // The local diagnostics log: what the plugin did and every problem it noticed,
@@ -4505,30 +4446,14 @@ export function diagnosis(now: number, kept: Problem[] = problems, isLogging = s
 export const isWiderThanBox = (pixels: number, columns: number, cellWidth: number) => pixels > (columns + 1) * cellWidth * 1.03
 
 // ── updater.ts ────────────────────────────────────────────────────────────
-// Updates: a daily check of the install's channel, and the move between
-// channels. The updater will be turned off after the plugin moves to the
-// Claude Code plugin directory, which keeps it up to date instead.
+// Updates, removed in this fork: it never checks GitHub and never installs
+// anything by itself. Update it by hand after reviewing what changed:
+//   claude plugin marketplace update bennouli
+//   claude plugin update show-your-work@bennouli
+// What is left is what the rest of the plugin still reads.
 
-
-// Keeps the plugin current without the user turning on marketplace
-// auto-update: once a day it asks GitHub for the version on the install's
-// channel and, when it is newer, updates through Claude Code's own plugin
-// commands, quietly. The new version runs from the next session.
-//
-// Two channels, one branch each: Stable releases follow `releases`, Latest
-// follows `latest`. `main` is where work happens and nothing updates from
-// it; an install still on it moves to its channel's branch. Moving means
-// re-adding the marketplace at that branch and installing the plugin again
-// (its store is kept), in a process of its own (see moveTo). Off with
-// SHOW_YOUR_WORK_AUTO_UPDATE=0 or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, and
-// never for an install pinned to a release tag.
-const REPO = 'iamumeransari/claude-show-your-work'
-const MARKETPLACE = 'iamumeransari'
 export const PLUGIN = 'show-your-work'
-const SOURCE = `https://github.com/${REPO}.git`
-export const BRANCHES = { stable: 'releases', latest: 'latest' } as const
-type Branch = (typeof BRANCHES)[keyof typeof BRANCHES]
-const DAY_MS = 24 * 60 * 60 * 1000
+type Branch = 'releases' | 'latest'
 
 // A version folder from before 0.6.0 in the plugin cache: this install was
 // used before 0.6.0's welcome, so it was updated past it without seeing it.
@@ -4543,50 +4468,6 @@ export function isNewer(latest: string, current: string): boolean {
   }
 
   return false
-}
-
-// Where Claude Code's CLI usually is, when the login shell didn't find it
-// (state.claudePath, found at session start) and it isn't on the session's PATH.
-const CLAUDE_BINARIES = ['claude', '.local/bin/claude', '.claude/local/claude', '.npm-global/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude']
-let claudeBinary = ''
-
-// Runs Claude Code's CLI with the session's own environment (its PATH and
-// CLAUDE_CONFIG_DIR), so it changes this install and no other.
-async function claude($: EngineInterface, args: string[]) {
-  const known = CLAUDE_BINARIES.map(b => (b.startsWith('.') ? `${state.home}/${b}` : b))
-  const candidates = [...new Set([claudeBinary, state.claudePath, ...known].filter(Boolean))]
-  for (const bin of candidates) {
-    const r = await $.process.run([bin, ...args], { timeoutMs: 120_000 }).catch(() => undefined)
-    if (r) {
-      claudeBinary = bin
-      return r
-    }
-  }
-  return undefined
-}
-
-function jsonOf<T>(text: string | undefined, fallback: T): T {
-  try { return text ? (JSON.parse(text) as T) : fallback } catch { return fallback }
-}
-
-// The automatic check at session start: at most once a day, never when
-// SHOW_YOUR_WORK_AUTO_UPDATE=0 or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set. It installs any newer version without asking. Claude Code only loads
-// the new version in a new session, so once one is installed a status line
-// under the prompt says so until Claude Code restarts.
-export async function checkForUpdate($: EngineInterface, current: string, branch: Branch = BRANCHES.stable) {
-  const off = await $.env.get('SHOW_YOUR_WORK_AUTO_UPDATE')
-  if (/^(0|false|off|no)$/i.test(off ?? '')) return
-  if (await $.env.get('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')) return
-  const now = await $.clock.now()
-  if (now - Number((await $.store.get('updateCheckedAt')) ?? 0) < DAY_MS) return
-  const found = await findUpdate($, current, branch)
-  // Every check says how it ended, so a stuck install shows why. Only a check
-  // that got through counts for the day; one that couldn't run tries again
-  // at the next session.
-  track('update_check', { result: found.kind, channel: branch, ...('latest' in found ? { latest: found.latest } : {}) })
-  if (found.kind !== 'offline' && found.kind !== 'no_cli') await $.store.set('updateCheckedAt', now)
-  const isReady = found.kind === 'pending' || ((found.kind === 'update' || found.kind === 'move') && (await installUpdate($, found, current)))
-  if (isReady && 'latest' in found) $.ui.status(`show-your-work ${found.latest} is ready. Restart Claude Code to use it.`)
 }
 
 // The result of checking for an update:
@@ -4608,80 +4489,10 @@ export type Found =
   | { kind: 'pinned'; ref: string }
   | { kind: 'offline' }
   | { kind: 'no_cli' }
-export async function findUpdate($: EngineInterface, current: string, branch: Branch): Promise<Found> {
-  // No such branch yet, or no network: nothing to say about it.
-  // Each channel's address written out in full, so the directory review can read it.
-  const r = await (branch === BRANCHES.latest
-    ? $.http.fetch('https://raw.githubusercontent.com/iamumeransari/claude-show-your-work/latest/.claude-plugin/plugin.json')
-    : $.http.fetch('https://raw.githubusercontent.com/iamumeransari/claude-show-your-work/releases/.claude-plugin/plugin.json')
-  ).catch(() => null)
-  if (!r?.ok) return { kind: 'offline' }
-  const latest = String(jsonOf<{ version?: string }>(r.text, {}).version ?? '')
-  if (!latest) return { kind: 'offline' }
 
-  // A marketplace read from a folder is someone working on the plugin: leave it.
-  const listed = await claude($, ['plugin', 'marketplace', 'list', '--json'])
-  if (!listed || listed.exitCode !== 0) return { kind: 'no_cli' }
-  const markets = jsonOf<{ name: string; source: string; url?: string; ref?: string }[]>(listed.stdout, [])
-  const market = markets.find(m => m.name === MARKETPLACE)
-  // An installed copy whose marketplace is missing is mid channel move
-  // (MOVE_SH removes it, then adds it back): not a folder copy.
-  const isCached = isInstalledCopy(await Promise.resolve().then(() => $.plugin.root).catch(() => ''))
-  if (market?.source === 'directory' || (!market && !isCached)) return { kind: 'folder' }
-  if (!market) return { kind: 'busy' }
-  // Added with #v0.5.14 or another ref: the user chose that version.
-  const ref = market.ref ?? 'main'
-  if (ref !== 'main' && !Object.values(BRANCHES).includes(ref as Branch)) return { kind: 'pinned', ref }
-  if (ref !== branch) return { kind: 'move', latest, branch, market }
-  if (!isNewer(latest, current)) return { kind: 'current', latest }
-  const plugins = jsonOf<{ id: string; scope?: string; version?: string }[]>((await claude($, ['plugin', 'list', '--json']))?.stdout, [])
-  const installed = plugins.find(p => p.id === `${PLUGIN}@${MARKETPLACE}`)
-  if (!installed) return isCached ? { kind: 'busy' } : { kind: 'folder' }
-  // Already fetched by an earlier check; it runs from the next session.
-  if (installed.version && !isNewer(latest, installed.version)) return { kind: 'pending', latest }
-  return { kind: 'update', latest, scope: installed.scope ?? 'user' }
-}
-
-// Installs an update findUpdate found, through Claude Code's plugin commands.
-// A channel move runs detached and finishes in the background. Returns true
-// when the install (or starting the move) succeeded.
-export async function installUpdate($: EngineInterface, found: Extract<Found, { kind: 'update' | 'move' }>, current: string) {
-  if (found.kind === 'move') return moveTo($, found.branch, found.market)
-  await claude($, ['plugin', 'marketplace', 'update', MARKETPLACE])
-  const done = await claude($, ['plugin', 'update', `${PLUGIN}@${MARKETPLACE}`, '--scope', found.scope])
-  if (done?.exitCode !== 0) {
-    track('update_failed', { from: current, to: found.latest })
-    return false
-  }
-  track('update_installed', { from: current, to: found.latest })
-  return true
-}
-
-// Puts the install on another channel's branch: the marketplace again at that
-// branch, then the plugin from it. The steps run in a process of their own,
-// outside the session, so quitting Claude Code halfway can't leave the plugin
-// uninstalled; when the branch can't be added or its plugin won't install,
-// the old source and the plugin go back, a second time if the first fails.
-export const MOVE_SH = [
-  'exec </dev/null >/dev/null 2>&1',
-  'c=$1 url=$2 branch=$3 old=$4 scope=$5 market=$6 id=$7',
-  '"$c" plugin marketplace remove "$market" || exit 0',
-  '"$c" plugin marketplace add "$url#$branch" && "$c" plugin install "$id" --scope "$scope" && exit 0',
-  '"$c" plugin marketplace remove "$market"',
-  'for try in 1 2; do "$c" plugin marketplace add "$old"; "$c" plugin install "$id" --scope "$scope" && exit 0; done',
-  'exit 1',
-].join('\n')
-// Starts a script in a session of its own, so it outlives this one.
-const DETACH = ['perl', '-MPOSIX', '-e', 'fork and exit; POSIX::setsid(); exec @ARGV']
-async function moveTo($: EngineInterface, branch: Branch, market: { url?: string; ref?: string }) {
-  const plugins = jsonOf<{ id: string; scope?: string }[]>((await claude($, ['plugin', 'list', '--json']))?.stdout, [])
-  const installed = plugins.find(p => p.id === `${PLUGIN}@${MARKETPLACE}`)
-  if (!installed || !claudeBinary) return false
-  const url = market.url ?? SOURCE
-  const old = market.ref ? `${url}#${market.ref}` : url
-  track('channel_move', { from: market.ref ?? 'main', to: branch })
-  const r = await $.process.run([...DETACH, 'sh', '-c', MOVE_SH, 'move', claudeBinary, url, branch, old, installed.scope ?? 'user', MARKETPLACE, `${PLUGIN}@${MARKETPLACE}`]).catch(() => undefined)
-  return r?.exitCode === 0
+// Never reached in this fork (nothing finds an update), and does nothing.
+export async function installUpdate(_$: EngineInterface, _found: Extract<Found, { kind: 'update' | 'move' }>, _current: string) {
+  return false
 }
 
 // ── onboarding.tsx ────────────────────────────────────────────────────────
@@ -4715,7 +4526,6 @@ export async function ensureSettings($: EngineInterface) {
 
 export async function loadSettings($: EngineInterface) {
   const saved = ((await $.store.get('settings')) ?? {}) as Partial<Record<Field, unknown>>
-  if (typeof saved.usage_stats !== 'boolean' && earlierNo(await $.store.get('consent'), await $.store.get('statsOff'), null).isStatsOff) settings.usage_stats = false
   for (const { field } of SETTINGS) if (typeof saved[field] === 'boolean') settings[field] = saved[field] as boolean
 }
 
@@ -4725,40 +4535,17 @@ async function switchSetting($: EngineInterface, field: Field, value: boolean) {
   settings[field] = value
   act(`setting_${field}_${value ? 'first' : 'second'}`)
   await $.store.set('settings', { ...settings })
-  // The profile keeps the install's current choice of update channel.
-  if (field === 'stable_updates') track('settings_changed', { $set: { update_channel: value ? 'stable' : 'latest' } })
   if (field === 'standard_size') {
     track('settings_changed', { $set: { picture_size: value ? 'standard' : 'large' } })
     // Players already on screen redraw at the new size.
     redraw($)
   }
-  // Turning usage data off sends one last signal saying so, then nothing more.
-  if (field === 'usage_stats' && !value && state.isOn) {
-    track('usage_data_turned_off', { $set: { usage_data: 'off' } })
-    await flush($).catch(() => undefined)
-  }
-  // Off means off: nothing queued is kept for later.
-  if (field === 'usage_stats' && !value) {
-    state.isOn = false
-    state.queue = []
-  }
-  if (field === 'usage_stats' && value && state.isWelcomed) await startTelemetry($, state.statsContext)
-  // A new channel is followed now.
-  if (field === 'stable_updates' && state.isWelcomed) {
-    await $.store.set('updateCheckedAt', 0)
-    void checkForUpdate($, state.pluginVersion, value ? BRANCHES.stable : BRANCHES.latest).catch(() => undefined)
-  }
   await update($, welcome, n => n + 1)
 }
 
-// Updates and usage counts wait for the welcome on a first run, so a switch
-// turned off there is off before anything is sent.
-export async function startBackground($: EngineInterface) {
-  if (hasStarted) return
-  hasStarted = true
-  if (settings.usage_stats) await startTelemetry($, state.statsContext)
-  await checkForUpdate($, state.pluginVersion, settings.stable_updates ? BRANCHES.stable : BRANCHES.latest)
-}
+// Upstream starts usage counts and the daily update check here. This fork has
+// neither: it never sends usage data and never updates itself.
+export async function startBackground(_$: EngineInterface) {}
 
 // The first run (see 'toured'): the plugin runs /show-your-work once, and its output row
 // in the chat draws the welcome. That run answers with WELCOME_TEXT, which is
@@ -4785,9 +4572,9 @@ export async function openUpdate($: EngineInterface) {
   updateCheck = { phase: 'checking' }
   await $.ui.open({ id: UPDATE, title: 'Updates', focus: true, closeOnEscape: true, holdToasts: true, rows: 9, columns: 70 })
   await update($, welcome, n => n + 1)
-  await loadSettings($)
-  const branch = settings.stable_updates ? BRANCHES.stable : BRANCHES.latest
-  const found = await findUpdate($, state.pluginVersion, branch).catch((): Found => ({ kind: 'offline' }))
+  // This fork never checks GitHub: update it with `claude plugin update`
+  // after reviewing what changed.
+  const found: Found = { kind: 'pinned', ref: 'this fork' }
   updateCheck = { phase: 'found', found }
   await update($, welcome, n => n + 1)
 }
@@ -4803,14 +4590,13 @@ async function installFound($: EngineInterface, found: Extract<Found, { kind: 'u
 
 export function UpdatePane(ui: Ui, $: EngineInterface) {
   const { Box, Text, Button } = ui
-  const channel = settings.stable_updates ? 'Stable releases' : 'Latest releases'
   const close = <Button key="update-close" label="Close" onPress={() => void $.ui.close({ id: UPDATE })} />
   const c = updateCheck
   const found = c.phase === 'found' ? c.found : null
   // Each outcome of the check sets a bold headline, a dim second line, and
   // the buttons. Install shows only when there is a newer version.
   let head = 'Checking for updates…'
-  let line = `On ${state.pluginVersion} · ${channel}`
+  let line = `On ${state.pluginVersion}`
   let actions: Ui[] = []
   if (found?.kind === 'update' || found?.kind === 'move') {
     head = `Version ${found.latest} is available`
@@ -4834,7 +4620,7 @@ export function UpdatePane(ui: Ui, $: EngineInterface) {
     actions = [close]
   } else if (found?.kind === 'no_cli') {
     head = "Couldn't find Claude Code's command"
-    line = 'Update by hand with: claude plugin update show-your-work@iamumeransari'
+    line = 'Update by hand with: claude plugin update show-your-work@bennouli'
     actions = [close]
   } else if (found?.kind === 'offline') {
     head = "Couldn't check for updates"
@@ -4848,7 +4634,7 @@ export function UpdatePane(ui: Ui, $: EngineInterface) {
     actions = [close]
   } else if (c.phase === 'failed') {
     head = "Couldn't install the update"
-    line = `Try again, or run: claude plugin update ${PLUGIN}@iamumeransari`
+    line = `Try again, or run: claude plugin update ${PLUGIN}@bennouli`
     actions = [close]
   }
   return (
@@ -4866,7 +4652,6 @@ export async function openSettings($: EngineInterface) {
   await update($, welcome, n => n + 1)
 }
 
-let hasStarted = false
 async function finishWelcome($: EngineInterface) {
   if (state.isWelcomed) return
   state.isWelcomed = true
@@ -4948,7 +4733,6 @@ function SettingRows(ui: Ui, $: EngineInterface) {
           })}
         </Box>
       ))}
-      <Box marginTop={1}><Text dimColor>Usage data is anonymous and helps fix bugs and improve the product experience. No sensitive data is ever shared.</Text></Box>
     </Box>
   )
 }
@@ -4967,7 +4751,7 @@ export async function Opening($: EngineInterface, e: Parameters<EngineInterface[
       {view ?? <Text bold color="claude">✦ show-your-work is installed and ready</Text>}
       <Box flexDirection="column">
         <Text>Claude now shows you pictures and videos right here in the chat. Try asking Claude to create something and show it to you in the chat, as an image or a recording.</Text>
-        <Text dimColor>It keeps itself updated and sends anonymous usage counts. Change this with /show-your-work, and see every feature with /show-your-work tour.</Text>
+        <Text dimColor>This copy never updates itself and sends no usage data. Change picture size with /show-your-work, and see every feature with /show-your-work tour.</Text>
       </Box>
     </Box>
   )

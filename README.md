@@ -15,11 +15,13 @@
 
 ## Install
 
+> This is a fork of [iamumeransari/claude-show-your-work](https://github.com/iamumeransari/claude-show-your-work) with usage data and self-updates removed. It sends nothing anywhere and never updates itself: update it with `claude plugin marketplace update bennouli && claude plugin update show-your-work@bennouli` after reviewing what changed.
+
 Run these two commands in Claude Code:
 
 ```
-/plugin marketplace add https://github.com/iamumeransari/claude-show-your-work.git#releases
-/plugin install show-your-work@iamumeransari
+/plugin marketplace add https://github.com/bennouli/claude-show-your-work.git
+/plugin install show-your-work@bennouli
 ```
 
 It supports Ghostty and kitty, on macOS and Linux, with Claude Code 2.1.286 or later. Videos and audio also need ffmpeg: install it with your package manager (`brew install ffmpeg` on macOS), or ask Claude to install it. HTML pages need Chrome, Chromium or Playwright's browser, and PDFs need poppler (`brew install poppler`).
@@ -167,7 +169,7 @@ Yes, show-your-work is free and open source under the MIT license.
 <details>
 <summary><b>Do I need to update the plugin myself when new features and fixes come out?</b></summary>
 
-No, you don't need to update it yourself. The plugin updates itself, so you're never left behind. You can choose between Stable and Latest releases during the onboarding, or any time with `/show-your-work`.
+Yes. This fork never updates itself, so nothing new runs on your computer until you choose. When you want a newer version, run `claude plugin marketplace update bennouli` and `claude plugin update show-your-work@bennouli`.
 
 </details>
 
@@ -188,7 +190,7 @@ No, it doesn't take up much space. It keeps recent pictures and videos so you ca
 <details>
 <summary><b>Does it collect any data?</b></summary>
 
-You choose whether to share anonymous usage data. You can make that choice during the onboarding, or change it any time with `/show-your-work`. It never collects any sensitive data whatsoever. The details are in the [Privacy policy](PRIVACY.md).
+No. This fork sends no usage data and makes no network requests of its own. The details are in the [Privacy policy](PRIVACY.md).
 
 </details>
 
@@ -199,7 +201,7 @@ Here's everything the plugin does on your computer, so you know exactly what you
 
 To get pictures and videos ready, it uses `ffmpeg` and `ffprobe` (turning a video into frames and reading its length) and, on macOS, `sips` (converting a picture to PNG). When you play a video with sound, `ffplay` (part of ffmpeg) plays its sound, and on macOS `osascript` reads how long your speakers or headphones take to play it, so the picture waits for the sound. When you press View, Show in Finder or Save to Downloads, it opens the file with `open` on macOS or `xdg-open` on Linux. On macOS, `mdfind` helps `/img` find an image you pasted. To show an HTML page or a Markdown or Mermaid document, it renders it in a hidden Chrome or Chromium with a throwaway profile (never your logins); for PDFs it uses poppler's `pdftoppm` and `pdfinfo`.
 
-A few short scripts run with `sh` and `perl`. They find `ffmpeg` and your home folder, read the terminal's cell size so pictures fit, tidy the plugin's temp folder, open a viewer on Linux, and switch between the Stable and Latest channels. It also uses `cp`, `mkdir`, `rm`, `cat` and `touch` for its own temp files, and `claude plugin` to install its own updates from this repository, at most once a day. You can turn updates off. The updater will be turned off after the plugin moves to the Claude Code plugin directory, which keeps it up to date instead.
+A few short scripts run with `sh` and `perl`. They find `ffmpeg` and your home folder, read the terminal's cell size so pictures fit, tidy the plugin's temp folder and open a viewer on Linux. It also uses `cp`, `mkdir`, `rm`, `cat` and `touch` for its own temp files. It never installs updates by itself.
 
 It keeps these files:
 
@@ -209,9 +211,7 @@ It keeps these files:
 - If your shell profile has the line an older version's Turn on pictures added (see [Terminals](#terminals)), it removes that one line.
 - With `SHOW_YOUR_WORK_DEBUG=1`, it writes a `debug.log` in the temp folder.
 
-Once a day it reads the plugin's latest version number from `raw.githubusercontent.com`.
-
-If Usage data is set to share in `/show-your-work`, it sends anonymous usage counts to `us.i.posthog.com`. These are event names and counts, plus the plugin and Claude Code versions, your terminal, your OS and whether ffmpeg is installed, under a random install id. They never include file names, paths, prompts, anything you type or your IP address. The key in the code is PostHog's public key, which can only send events.
+It connects to nothing: no version check and no usage data.
 
 Inside Claude Code, it uses these hooks:
 
@@ -220,7 +220,7 @@ Inside Claude Code, it uses these hooks:
 - `tool.call` handles the plugin's own `show_image`, `show_video`, `show_html`, `show_audio` and `show_document` tools. It never touches other tools.
 - `command.run` runs `/img`, `/page`, `/audio`, `/doc` and `/show-your-work`. Right after you install, it runs `/show-your-work tour` once to show you around.
 - `ui.render` draws the plugin's player, notices, settings and tour.
-- `session.start` and `session.end` set up the temp folder and terminal at the start, and send any waiting usage counts at the end. Inside tmux they also start and stop the picture pass-through for the plugin's pane (see [Terminals](#terminals)).
+- `session.start` and `session.end` set up the temp folder and terminal at the start and tidy up at the end. Inside tmux they also start and stop the picture pass-through for the plugin's pane (see [Terminals](#terminals)).
 
 </details>
 

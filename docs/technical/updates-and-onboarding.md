@@ -1,5 +1,7 @@
 # Updates, settings and onboarding
 
+> **This fork:** the updater and usage counts are removed. `updater.ts` keeps only what other modules read, `telemetry.ts` keeps its exports as functions that do nothing, `startBackground` does nothing, and the settings pane has Picture size only. `tests/no-network.test.ts` checks that nothing is fetched or installed. The sections below describe upstream.
+
 ## Channels and the updater
 
 - Two channels, two branches: **Stable** follows `releases`, **Latest** follows `latest` (`BRANCHES`). Stable is the default. `main` is development only. Versions before 0.6.0 checked `main`.

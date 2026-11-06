@@ -6,10 +6,10 @@ import type { Shown } from '../types'
 
 import { SETTINGS, settings, state } from './state'
 import type { Field } from './state'
-import { act, flush, startTelemetry, track } from './telemetry'
+import { act, track } from './telemetry'
 import { prepare } from './media'
 import { preparedOf } from './history'
-import { BRANCHES, checkForUpdate, findUpdate, installUpdate, PLUGIN } from './updater'
+import { installUpdate, PLUGIN } from './updater'
 import type { Found } from './updater'
 import { STOPS } from './tour'
 import type { Stop } from './tour'
@@ -43,7 +43,6 @@ export async function ensureSettings($: EngineInterface) {
 
 export async function loadSettings($: EngineInterface) {
   const saved = ((await $.store.get('settings')) ?? {}) as Partial<Record<Field, unknown>>
-  if (typeof saved.usage_stats !== 'boolean' && earlierNo(await $.store.get('consent'), await $.store.get('statsOff'), null).isStatsOff) settings.usage_stats = false
   for (const { field } of SETTINGS) if (typeof saved[field] === 'boolean') settings[field] = saved[field] as boolean
 }
 
@@ -53,40 +52,17 @@ async function switchSetting($: EngineInterface, field: Field, value: boolean) {
   settings[field] = value
   act(`setting_${field}_${value ? 'first' : 'second'}`)
   await $.store.set('settings', { ...settings })
-  // The profile keeps the install's current choice of update channel.
-  if (field === 'stable_updates') track('settings_changed', { $set: { update_channel: value ? 'stable' : 'latest' } })
   if (field === 'standard_size') {
     track('settings_changed', { $set: { picture_size: value ? 'standard' : 'large' } })
     // Players already on screen redraw at the new size.
     redraw($)
   }
-  // Turning usage data off sends one last signal saying so, then nothing more.
-  if (field === 'usage_stats' && !value && state.isOn) {
-    track('usage_data_turned_off', { $set: { usage_data: 'off' } })
-    await flush($).catch(() => undefined)
-  }
-  // Off means off: nothing queued is kept for later.
-  if (field === 'usage_stats' && !value) {
-    state.isOn = false
-    state.queue = []
-  }
-  if (field === 'usage_stats' && value && state.isWelcomed) await startTelemetry($, state.statsContext)
-  // A new channel is followed now.
-  if (field === 'stable_updates' && state.isWelcomed) {
-    await $.store.set('updateCheckedAt', 0)
-    void checkForUpdate($, state.pluginVersion, value ? BRANCHES.stable : BRANCHES.latest).catch(() => undefined)
-  }
   await update($, welcome, n => n + 1)
 }
 
-// Updates and usage counts wait for the welcome on a first run, so a switch
-// turned off there is off before anything is sent.
-export async function startBackground($: EngineInterface) {
-  if (hasStarted) return
-  hasStarted = true
-  if (settings.usage_stats) await startTelemetry($, state.statsContext)
-  await checkForUpdate($, state.pluginVersion, settings.stable_updates ? BRANCHES.stable : BRANCHES.latest)
-}
+// Upstream starts usage counts and the daily update check here. This fork has
+// neither: it never sends usage data and never updates itself.
+export async function startBackground(_$: EngineInterface) {}
 
 // The first run (see 'toured'): the plugin runs /show-your-work once, and its output row
 // in the chat draws the welcome. That run answers with WELCOME_TEXT, which is
@@ -113,9 +89,9 @@ export async function openUpdate($: EngineInterface) {
   updateCheck = { phase: 'checking' }
   await $.ui.open({ id: UPDATE, title: 'Updates', focus: true, closeOnEscape: true, holdToasts: true, rows: 9, columns: 70 })
   await update($, welcome, n => n + 1)
-  await loadSettings($)
-  const branch = settings.stable_updates ? BRANCHES.stable : BRANCHES.latest
-  const found = await findUpdate($, state.pluginVersion, branch).catch((): Found => ({ kind: 'offline' }))
+  // This fork never checks GitHub: update it with `claude plugin update`
+  // after reviewing what changed.
+  const found: Found = { kind: 'pinned', ref: 'this fork' }
   updateCheck = { phase: 'found', found }
   await update($, welcome, n => n + 1)
 }
@@ -131,14 +107,13 @@ async function installFound($: EngineInterface, found: Extract<Found, { kind: 'u
 
 export function UpdatePane(ui: Ui, $: EngineInterface) {
   const { Box, Text, Button } = ui
-  const channel = settings.stable_updates ? 'Stable releases' : 'Latest releases'
   const close = <Button key="update-close" label="Close" onPress={() => void $.ui.close({ id: UPDATE })} />
   const c = updateCheck
   const found = c.phase === 'found' ? c.found : null
   // Each outcome of the check sets a bold headline, a dim second line, and
   // the buttons. Install shows only when there is a newer version.
   let head = 'Checking for updates…'
-  let line = `On ${state.pluginVersion} · ${channel}`
+  let line = `On ${state.pluginVersion}`
   let actions: Ui[] = []
   if (found?.kind === 'update' || found?.kind === 'move') {
     head = `Version ${found.latest} is available`
@@ -162,7 +137,7 @@ export function UpdatePane(ui: Ui, $: EngineInterface) {
     actions = [close]
   } else if (found?.kind === 'no_cli') {
     head = "Couldn't find Claude Code's command"
-    line = 'Update by hand with: claude plugin update show-your-work@iamumeransari'
+    line = 'Update by hand with: claude plugin update show-your-work@bennouli'
     actions = [close]
   } else if (found?.kind === 'offline') {
     head = "Couldn't check for updates"
@@ -176,7 +151,7 @@ export function UpdatePane(ui: Ui, $: EngineInterface) {
     actions = [close]
   } else if (c.phase === 'failed') {
     head = "Couldn't install the update"
-    line = `Try again, or run: claude plugin update ${PLUGIN}@iamumeransari`
+    line = `Try again, or run: claude plugin update ${PLUGIN}@bennouli`
     actions = [close]
   }
   return (
@@ -194,7 +169,6 @@ export async function openSettings($: EngineInterface) {
   await update($, welcome, n => n + 1)
 }
 
-let hasStarted = false
 async function finishWelcome($: EngineInterface) {
   if (state.isWelcomed) return
   state.isWelcomed = true
@@ -276,7 +250,6 @@ function SettingRows(ui: Ui, $: EngineInterface) {
           })}
         </Box>
       ))}
-      <Box marginTop={1}><Text dimColor>Usage data is anonymous and helps fix bugs and improve the product experience. No sensitive data is ever shared.</Text></Box>
     </Box>
   )
 }
@@ -295,7 +268,7 @@ export async function Opening($: EngineInterface, e: Parameters<EngineInterface[
       {view ?? <Text bold color="claude">✦ show-your-work is installed and ready</Text>}
       <Box flexDirection="column">
         <Text>Claude now shows you pictures and videos right here in the chat. Try asking Claude to create something and show it to you in the chat, as an image or a recording.</Text>
-        <Text dimColor>It keeps itself updated and sends anonymous usage counts. Change this with /show-your-work, and see every feature with /show-your-work tour.</Text>
+        <Text dimColor>This copy never updates itself and sends no usage data. Change picture size with /show-your-work, and see every feature with /show-your-work tour.</Text>
       </Box>
     </Box>
   )

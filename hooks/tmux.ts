@@ -88,4 +88,7 @@ export async function stopForwarding($: EngineInterface) {
   const pane = forwarding
   forwarding = ''
   await Promise.resolve().then(() => $.process.run(['tmux', 'pipe-pane', '-t', pane])).catch(() => undefined)
+  // Pass-through was turned on for this pane only: unset it, so the pane goes
+  // back to the person's own tmux setting once Claude Code has gone.
+  await Promise.resolve().then(() => $.process.run(['tmux', 'set', '-p', '-u', '-t', pane, 'allow-passthrough'])).catch(() => undefined)
 }
